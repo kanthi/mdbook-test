@@ -1,73 +1,58 @@
-name: Deploy mdBook to GitHub Pages
+name: Deploy Book
 
 on:
   push:
     branches:
-      - master  # Set this to your default branch
-  workflow_dispatch:
-
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-# Allow only one concurrent deployment
-concurrency:
-  group: "pages"
-  cancel-in-progress: false
+      - master
 
 jobs:
   deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
+    container:
+      image: rust:latest
 
-      - name: Cache cargo registry
-        uses: actions/cache@v3
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up cargo cache
+        uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
             ~/.cargo/bin
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Setup Rust
-        uses: actions-rs/toolchain@v1
+      - name: Cache mdbook and book-summary
+        id: tool-cache
+        uses: actions/cache@v4
         with:
-          toolchain: stable
-          profile: minimal
+          path: |
+            ~/.cargo/bin/mdbook
+            ~/.cargo/bin/book-summary
+          key: ${{ runner.os }}-book-tools-v1-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-book-tools-v1-
 
-      - name: Cache cargo binaries
-        uses: actions/cache@v3
-        with:
-          path: ~/.cargo/bin
-          key: ${{ runner.os }}-cargo-bin-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Install mdBook
+      - name: Install mdbook and book-summary
+        if: steps.tool-cache.outputs.cache-hit != 'true'
         run: |
-          command -v mdbook || cargo install mdbook
-          command -v book-summary || cargo install book-summary
+          cargo install mdbook book-summary
 
-      - name: Build Book
+      - name: Generate book summary
         run: |
           book-summary -y
+
+      - name: Build book
+        run: |
           mdbook build
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v3
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v2
-        with:
-          path: 'public'
-
       - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v2
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
